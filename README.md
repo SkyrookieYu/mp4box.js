@@ -1,14 +1,10 @@
 MP4Box.js
 ======
 
-[![Build Status](https://travis-ci.org/gpac/mp4box.js.svg?branch=master)](https://travis-ci.org/gpac/mp4box.js)
-[![CircleCI](https://circleci.com/gh/gpac/mp4box.js.svg?style=svg)](https://circleci.com/gh/gpac/mp4box.js)
-[![Coverage Status](https://coveralls.io/repos/github/gpac/mp4box.js/badge.svg?branch=master)](https://coveralls.io/github/gpac/mp4box.js?branch=master)
-[![Dependency Status](https://david-dm.org/gpac/mp4box.js.svg)](https://david-dm.org/gpac/mp4box.js)
-[![devDependency Status](https://david-dm.org/gpac/mp4box.js/dev-status.svg)](https://david-dm.org/gpac/mp4box.js#info=devDependencies)
+[![NodeJS with Grunt](https://github.com/gpac/mp4box.js/actions/workflows/grunt.yml/badge.svg)](https://github.com/gpac/mp4box.js/actions/workflows/grunt.yml)
 
 JavaScript library to process MP4 files in the browser (and in NodeJS), with support for progressive parsing. 
-Inspired by the [MP4Box](http://gpac.wp.mines-telecom.fr/mp4box/) tool from the [GPAC](http://gpac.wp.mines-telecom.fr) project. 
+Inspired by the [MP4Box](https://github.com/gpac/gpac/wiki/MP4Box) tool from the [GPAC](http://gpac.io) project. 
 It can be used to:
 - [get information about an MP4 file](#getting-information), 
 - [segment](#segmentation) an MP4 file for use with the [Media Source Extension API](https://dvcs.w3.org/hg/html-media/raw-file/tip/media-source/media-source.html),
@@ -20,6 +16,7 @@ Demos
 =====
 * [A player that performs on-the-fly fragmentation](./test/index.html)
 * [A file inspection tool](./test/filereader.html)
+* [A basic file segmenter](./test/file-segmenter.html)
 * [A file diff tool](./test/filediff.html)
 * [An MSE-based AVIF viewing tool](./test/mse-avif-viewer.html)
 * [QUnit tests](./test/qunit.html)
@@ -185,7 +182,7 @@ Indicates that no more data will be received and that all remaining samples shou
 var mp4box = MP4Box.createFile();
 mp4boxfile.onReady = function(info) {
   ...
-  mp4boxfile.onSegment = function (id, user, buffer) {}
+  mp4boxfile.onSegment = function (id, user, buffer, sampleNumber, last) {}
   mp4boxfile.setSegmentOptions(info.tracks[0].id, sb, options);  
   var initSegs = mp4boxfile.initializeSegmentation();  
   mp4boxfile.start();
@@ -208,11 +205,11 @@ Indicates that the track with the given `track_id` should not be segmented.
 mp4boxfile.unsetSegmentOptions(1);
 ```
 
-#### onSegment(id, user, buffer) ####
+#### onSegment(id, user, buffer, sampleNumber, last) ####
 Callback called when a segment is ready, according to the options passed in [setSegmentOptions](##setsegmentoptionstrack_id-user-options). `user` is the caller of the segmentation, for this track, and `buffer` is an ArrayBuffer containing the Movie Fragments for this segment.
 
 ```javascript
-mp4boxfile.onSegment = function (id, user, buffer) {
+mp4boxfile.onSegment = function (id, user, buffer, sampleNumber, last) {
 	console.log("Received segment on track "+id+" for object "+user+" with a length of "+buffer.byteLength);
 }
 ```
@@ -222,6 +219,8 @@ Indicates that the application is ready to receive segments. Returns an array of
 - **id**: Number, the track id 
 - **user**: Object, the caller of the segmentation for this track, as given in [setSegmentOptions](##setsegmentoptionstrack_id-user-options)
 - **buffer**: ArrayBuffer, the initialization segment for this track.
+- **sampleNumber**: Number, sample number of the last sample in the segment, plus 1.
+- **buffer**: Boolean, indication if this is the last segment to be received.
 
 ```json
 [

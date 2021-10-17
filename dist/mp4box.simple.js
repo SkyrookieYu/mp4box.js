@@ -48,14 +48,14 @@ MP4BoxStream.prototype.readAnyInt = function(size, signed) {
         if (signed) {
           res = this.dataview.getInt8(this.position);
         } else {
-          res = this.dataview.getUint8(this.position);          
+          res = this.dataview.getUint8(this.position);
         }
         break;
       case 2:
         if (signed) {
           res = this.dataview.getInt16(this.position);
         } else {
-          res = this.dataview.getUint16(this.position);          
+          res = this.dataview.getUint16(this.position);
         }
         break;
       case 3:
@@ -63,27 +63,27 @@ MP4BoxStream.prototype.readAnyInt = function(size, signed) {
           throw ("No method for reading signed 24 bits values");
         } else {
           res = this.dataview.getUint8(this.position) << 16;
-          res |= this.dataview.getUint8(this.position) << 8;
-          res |= this.dataview.getUint8(this.position);
+          res |= this.dataview.getUint8(this.position+1) << 8;
+          res |= this.dataview.getUint8(this.position+2);
         }
         break;
       case 4:
         if (signed) {
           res = this.dataview.getInt32(this.position);
         } else {
-          res = this.dataview.getUint32(this.position);          
+          res = this.dataview.getUint32(this.position);
         }
         break;
       case 8:
         if (signed) {
           throw ("No method for reading signed 64 bits values");
         } else {
-          res = this.dataview.getUint32(this.position) << 32;          
-          res |= this.dataview.getUint32(this.position);
+          res = this.dataview.getUint32(this.position) << 32;
+          res |= this.dataview.getUint32(this.position+4);
         }
         break;
       default:
-        throw ("readInt method not implemented for size: "+size);  
+        throw ("readInt method not implemented for size: "+size);
     }
     this.position+= size;
     return res;
@@ -642,13 +642,25 @@ BoxParser.Box.prototype.parseLanguage = function(stream) {
 
 // file:src/parsing/emsg.js
 BoxParser.createFullBoxCtor("emsg", function(stream) {
-	this.scheme_id_uri 				= stream.readCString();
-	this.value 						= stream.readCString();
-	this.timescale 					= stream.readUint32();
-	this.presentation_time_delta 	= stream.readUint32();
-	this.event_duration			 	= stream.readUint32();
-	this.id 						= stream.readUint32();
+	if (this.version == 1) {
+		this.timescale 					= stream.readUint32();
+		this.presentation_time 			= stream.readUint64();
+		this.event_duration			 	= stream.readUint32();
+		this.id 						= stream.readUint32();
+		this.scheme_id_uri 				= stream.readCString();
+		this.value 						= stream.readCString();
+	} else {
+		this.scheme_id_uri 				= stream.readCString();
+		this.value 						= stream.readCString();
+		this.timescale 					= stream.readUint32();
+		this.presentation_time_delta 	= stream.readUint32();
+		this.event_duration			 	= stream.readUint32();
+		this.id 						= stream.readUint32();
+	}
 	var message_size = this.size - this.hdr_size - (4*4 + (this.scheme_id_uri.length+1) + (this.value.length+1));
+	if (this.version == 1) {
+		message_size -= 4;
+	}
 	this.message_data = stream.readUint8Array(message_size);
 });
 
@@ -1316,11 +1328,11 @@ ISOFile.prototype.processSamples = function(last) {
 				}
 				/* A fragment is created by sample, but the segment is the accumulation in the buffer of these fragments.
 				   It is flushed only as requested by the application (nb_samples) to avoid too many callbacks */
-				if (trak.nextSample % fragTrak.nb_samples === 0 || (last && trak.nextSample >= trak.samples.length)) {
+				if (trak.nextSample % fragTrak.nb_samples === 0 || (last || trak.nextSample >= trak.samples.length)) {
 					Log.info("ISOFile", "Sending fragmented data on track #"+fragTrak.id+" for samples ["+Math.max(0,trak.nextSample-fragTrak.nb_samples)+","+(trak.nextSample-1)+"]");
 					Log.info("ISOFile", "Sample data size in memory: "+this.getAllocatedSampleDataSize());
 					if (this.onSegment) {
-						this.onSegment(fragTrak.id, fragTrak.user, fragTrak.segmentStream.buffer, trak.nextSample, (last && trak.nextSample >= trak.samples.length));
+						this.onSegment(fragTrak.id, fragTrak.user, fragTrak.segmentStream.buffer, trak.nextSample, (last || trak.nextSample >= trak.samples.length));
 					}
 					/* force the creation of a new buffer */
 					fragTrak.segmentStream = null;

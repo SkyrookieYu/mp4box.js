@@ -144,14 +144,14 @@ MP4BoxStream.prototype.readAnyInt = function(size, signed) {
         if (signed) {
           res = this.dataview.getInt8(this.position);
         } else {
-          res = this.dataview.getUint8(this.position);          
+          res = this.dataview.getUint8(this.position);
         }
         break;
       case 2:
         if (signed) {
           res = this.dataview.getInt16(this.position);
         } else {
-          res = this.dataview.getUint16(this.position);          
+          res = this.dataview.getUint16(this.position);
         }
         break;
       case 3:
@@ -159,27 +159,27 @@ MP4BoxStream.prototype.readAnyInt = function(size, signed) {
           throw ("No method for reading signed 24 bits values");
         } else {
           res = this.dataview.getUint8(this.position) << 16;
-          res |= this.dataview.getUint8(this.position) << 8;
-          res |= this.dataview.getUint8(this.position);
+          res |= this.dataview.getUint8(this.position+1) << 8;
+          res |= this.dataview.getUint8(this.position+2);
         }
         break;
       case 4:
         if (signed) {
           res = this.dataview.getInt32(this.position);
         } else {
-          res = this.dataview.getUint32(this.position);          
+          res = this.dataview.getUint32(this.position);
         }
         break;
       case 8:
         if (signed) {
           throw ("No method for reading signed 64 bits values");
         } else {
-          res = this.dataview.getUint32(this.position) << 32;          
-          res |= this.dataview.getUint32(this.position);
+          res = this.dataview.getUint32(this.position) << 32;
+          res |= this.dataview.getUint32(this.position+4);
         }
         break;
       default:
-        throw ("readInt method not implemented for size: "+size);  
+        throw ("readInt method not implemented for size: "+size);
     }
     this.position+= size;
     return res;
@@ -1769,7 +1769,7 @@ MultiBufferStream.prototype.logBufferLevel = function(info) {
 	if (this.buffers.length === 0) {
 		log("MultiBufferStream", "No more buffer in memory");
 	} else {
-		log("MultiBufferStream", ""+this.buffers.length+" stored buffer(s) ("+used+"/"+total+" bytes): "+bufferedString);
+		log("MultiBufferStream", ""+this.buffers.length+" stored buffer(s) ("+used+"/"+total+" bytes), continuous ranges: "+bufferedString);
 	}
 }
 
@@ -2639,6 +2639,7 @@ BoxParser.createMediaSampleEntryCtor(BoxParser.SAMPLE_ENTRY_TYPE_TEXT);
 
 //Base SampleEntry types for Audio and Video with specific parsing
 BoxParser.createMediaSampleEntryCtor(BoxParser.SAMPLE_ENTRY_TYPE_VISUAL, function(stream) {
+	var compressorname_length;
 	this.parseHeader(stream);
 	stream.readUint16();
 	stream.readUint16();
@@ -2691,7 +2692,27 @@ BoxParser.createEncryptedSampleEntryCtor(BoxParser.SAMPLE_ENTRY_TYPE_TEXT, 		"en
 BoxParser.createEncryptedSampleEntryCtor(BoxParser.SAMPLE_ENTRY_TYPE_METADATA, 	"encm");
 
 
-// file:src/parsing/av1C.js
+// file:src/parsing/a1lx.js
+BoxParser.createBoxCtor("a1lx", function(stream) {
+	var large_size = stream.readUint8() & 1;
+	var FieldLength = ((large_size & 1) + 1) * 16;
+	this.layer_size = [];
+	for (var i = 0; i < 3; i++) {
+		if (FieldLength == 16) {
+			this.layer_size[i] = stream.readUint16();
+		} else {
+			this.layer_size[i] = stream.readUint32();
+		}
+	}
+});// file:src/parsing/a1op.js
+BoxParser.createBoxCtor("a1op", function(stream) {
+	this.op_index = stream.readUint8();
+});// file:src/parsing/auxC.js
+BoxParser.createFullBoxCtor("auxC", function(stream) {
+	this.aux_type = stream.readCString();
+	var aux_subtype_length = this.size - this.hdr_size - (this.aux_type.length + 1);
+	this.aux_subtype = stream.readUint8Array(aux_subtype_length);
+});// file:src/parsing/av1C.js
 BoxParser.createBoxCtor("av1C", function(stream) {
 	var i;
 	var toparse;
@@ -3025,13 +3046,25 @@ BoxParser.createFullBoxCtor("elst", function(stream) {
 
 // file:src/parsing/emsg.js
 BoxParser.createFullBoxCtor("emsg", function(stream) {
-	this.scheme_id_uri 				= stream.readCString();
-	this.value 						= stream.readCString();
-	this.timescale 					= stream.readUint32();
-	this.presentation_time_delta 	= stream.readUint32();
-	this.event_duration			 	= stream.readUint32();
-	this.id 						= stream.readUint32();
+	if (this.version == 1) {
+		this.timescale 					= stream.readUint32();
+		this.presentation_time 			= stream.readUint64();
+		this.event_duration			 	= stream.readUint32();
+		this.id 						= stream.readUint32();
+		this.scheme_id_uri 				= stream.readCString();
+		this.value 						= stream.readCString();
+	} else {
+		this.scheme_id_uri 				= stream.readCString();
+		this.value 						= stream.readCString();
+		this.timescale 					= stream.readUint32();
+		this.presentation_time_delta 	= stream.readUint32();
+		this.event_duration			 	= stream.readUint32();
+		this.id 						= stream.readUint32();
+	}
 	var message_size = this.size - this.hdr_size - (4*4 + (this.scheme_id_uri.length+1) + (this.value.length+1));
+	if (this.version == 1) {
+		message_size -= 4;
+	}
 	this.message_data = stream.readUint8Array(message_size);
 });
 
@@ -3251,7 +3284,12 @@ BoxParser.createFullBoxCtor("iloc", function(stream) {
 	}
 });
 
-// file:src/parsing/infe.js
+// file:src/parsing/imir.js
+BoxParser.createBoxCtor("imir", function(stream) {
+	var tmp = stream.readUint8();
+	this.reserved = tmp >> 7;
+	this.axis = tmp & 1;
+});// file:src/parsing/infe.js
 BoxParser.createFullBoxCtor("infe", function(stream) {
 	if (this.version === 0 || this.version === 1) {
 		this.item_ID = stream.readUint16();
@@ -3384,7 +3422,10 @@ BoxParser.createFullBoxCtor("leva", function(stream) {
 	}
 });
 
-// file:src/parsing/maxr.js
+// file:src/parsing/lsel.js
+BoxParser.createBoxCtor("lsel", function(stream) {
+	this.layer_id = stream.readUint16();
+});// file:src/parsing/maxr.js
 BoxParser.createBoxCtor("maxr", function(stream) {
 	this.period = stream.readUint32();
 	this.bytes = stream.readUint32();
@@ -5464,7 +5505,9 @@ BoxParser.sttsBox.prototype.write = function(stream) {
 
 // file:src/writing/tfdt.js
 BoxParser.tfdtBox.prototype.write = function(stream) {
-	this.version = 0;
+	var UINT32_MAX = Math.pow(2, 32) - 1;
+	// use version 1 if baseMediaDecodeTime does not fit 32 bits
+	this.version = this.baseMediaDecodeTime > UINT32_MAX ? 1 : 0;
 	this.flags = 0;
 	this.size = 4;
 	if (this.version === 1) {
@@ -5474,7 +5517,7 @@ BoxParser.tfdtBox.prototype.write = function(stream) {
 	if (this.version === 1) {
 		stream.writeUint64(this.baseMediaDecodeTime);
 	} else {
-		stream.writeUint32(this.baseMediaDecodeTime); 
+		stream.writeUint32(this.baseMediaDecodeTime);
 	}
 }
 
@@ -6293,11 +6336,11 @@ ISOFile.prototype.processSamples = function(last) {
 				}
 				/* A fragment is created by sample, but the segment is the accumulation in the buffer of these fragments.
 				   It is flushed only as requested by the application (nb_samples) to avoid too many callbacks */
-				if (trak.nextSample % fragTrak.nb_samples === 0 || (last && trak.nextSample >= trak.samples.length)) {
+				if (trak.nextSample % fragTrak.nb_samples === 0 || (last || trak.nextSample >= trak.samples.length)) {
 					Log.info("ISOFile", "Sending fragmented data on track #"+fragTrak.id+" for samples ["+Math.max(0,trak.nextSample-fragTrak.nb_samples)+","+(trak.nextSample-1)+"]");
 					Log.info("ISOFile", "Sample data size in memory: "+this.getAllocatedSampleDataSize());
 					if (this.onSegment) {
-						this.onSegment(fragTrak.id, fragTrak.user, fragTrak.segmentStream.buffer, trak.nextSample, (last && trak.nextSample >= trak.samples.length));
+						this.onSegment(fragTrak.id, fragTrak.user, fragTrak.segmentStream.buffer, trak.nextSample, (last || trak.nextSample >= trak.samples.length));
 					}
 					/* force the creation of a new buffer */
 					fragTrak.segmentStream = null;
@@ -6664,12 +6707,12 @@ ISOFile.prototype.init = function (_options) {
 							   .set("compatible_brands", options.brands || ["iso4"]);
 	var moov = this.add("moov");
 	moov.add("mvhd").set("timescale", options.timescale || 600)
-					.set("rate", options.rate || 1)
+					.set("rate", options.rate || 1<<16)
 					.set("creation_time", 0)
 					.set("modification_time", 0)
 					.set("duration", options.duration || 0)
-					.set("volume", 1)
-					.set("matrix", [ 0, 0, 0, 0, 0, 0, 0, 0, 0])
+					.set("volume", (options.width) ? 0 : 0x0100)
+					.set("matrix", [ 1<<16, 0, 0, 0, 1<<16, 0, 0, 0, 0x40000000])
 					.set("next_track_id", 1);
 	moov.add("mvex");
 	return this;
@@ -6707,7 +6750,7 @@ ISOFile.prototype.addTrack = function (_options) {
 					.set("modification_time", 0)
 					.set("timescale", options.timescale || 1)
 					.set("duration", options.media_duration || 0)
-					.set("language", options.language || 0);
+					.set("language", options.language || "und");
 
 	mdia.add("hdlr").set("handler", options.hdlr || "vide")
 					.set("name", options.name || "Track created with MP4Box.js");
@@ -6738,13 +6781,12 @@ ISOFile.prototype.addTrack = function (_options) {
 						.set("frame_count", 1)
 						.set("compressorname", options.type+" Compressor")
 						.set("depth", 0x18);
-		// sample_description_entry.add("avcC").set("SPS", [])
-		// 						.set("PPS", [])
-		// 						.set("configurationVersion", 1)
-		// 						.set("AVCProfileIndication",0)
-		// 						.set("profile_compatibility", 0)
-		// 						.set("AVCLevelIndication" ,0)
-		// 						.set("lengthSizeMinusOne", 0);
+			if (options.avcDecoderConfigRecord) {
+				var avcC = new BoxParser.avcCBox();
+				var stream = new MP4BoxStream(options.avcDecoderConfigRecord);
+				avcC.parse(stream);
+				sample_description_entry.addBox(avcC);
+			}
 			break;
 		case "Audio":
 			minf.add("smhd").set("balance", options.balance || 0);
@@ -6820,7 +6862,7 @@ ISOFile.prototype.addSample = function (track_id, data, _options) {
 	sample.description_index = (options.sample_description_index ? options.sample_description_index - 1: 0);
 	sample.description = trak.mdia.minf.stbl.stsd.entries[sample.description_index];
 	sample.data = data;
-	sample.size = data.length;
+	sample.size = data.byteLength;
 	sample.alreadyRead = sample.size;
 	sample.duration = options.duration || 1;
 	sample.cts = options.cts || 0;
@@ -6836,26 +6878,36 @@ ISOFile.prototype.addSample = function (track_id, data, _options) {
 	trak.samples.push(sample);
 	trak.samples_size += sample.size;
 	trak.samples_duration += sample.duration;
+	if (!trak.first_dts) {
+		trak.first_dts = options.dts;
+	}
 
 	this.processSamples();
 	
-	var moof = ISOFile.createSingleSampleMoof(sample);
+	var moof = this.createSingleSampleMoof(sample);
 	this.addBox(moof);
 	moof.computeSize();
 	/* adjusting the data_offset now that the moof size is known*/
 	moof.trafs[0].truns[0].data_offset = moof.size+8; //8 is mdat header
-	this.add("mdat").data = data;
+	this.add("mdat").data = new Uint8Array(data);
 	return sample;
 }
 
-ISOFile.createSingleSampleMoof = function(sample) {
+ISOFile.prototype.createSingleSampleMoof = function(sample) {
+	var sample_flags = 0;
+	if (sample.is_sync)
+		sample_flags = (1 << 25);  // sample_depends_on_none (I picture)
+	else
+		sample_flags = (1 << 16);  // non-sync
+
 	var moof = new BoxParser.moofBox();
 	moof.add("mfhd").set("sequence_number", this.nextMoofNumber);
 	this.nextMoofNumber++;
 	var traf = moof.add("traf");
+	var trak = this.getTrackById(sample.track_id);
 	traf.add("tfhd").set("track_id", sample.track_id)
 					.set("flags", BoxParser.TFHD_FLAG_DEFAULT_BASE_IS_MOOF);
-	traf.add("tfdt").set("baseMediaDecodeTime", sample.dts);
+	traf.add("tfdt").set("baseMediaDecodeTime", (sample.dts - (trak.first_dts || 0)));
 	traf.add("trun").set("flags", BoxParser.TRUN_FLAGS_DATA_OFFSET | BoxParser.TRUN_FLAGS_DURATION | 
 				 				  BoxParser.TRUN_FLAGS_SIZE | BoxParser.TRUN_FLAGS_FLAGS | 
 				 				  BoxParser.TRUN_FLAGS_CTS_OFFSET)
@@ -6864,7 +6916,7 @@ ISOFile.createSingleSampleMoof = function(sample) {
 					.set("sample_count",1)
 					.set("sample_duration",[sample.duration])
 					.set("sample_size",[sample.size])
-					.set("sample_flags",[0])
+					.set("sample_flags",[sample_flags])
 					.set("sample_composition_time_offset", [sample.cts - sample.dts]);
 	return moof;
 }
@@ -7047,6 +7099,7 @@ ISOFile.process_sdtp = function (sdtp, sample, number) {
 /* Build initial sample list from  sample tables */
 ISOFile.prototype.buildSampleLists = function() {	
 	var i;
+	var trak;
 	for (i = 0; i < this.moov.traks.length; i++) {
 		trak = this.moov.traks[i];
 		this.buildTrakSampleLists(trak);
@@ -7388,43 +7441,48 @@ ISOFile.prototype.getSample = function(trak, sampleNum) {
 	}
 
 	/* The sample has only been partially fetched, we need to check in all buffers */
-	var index =	this.stream.findPosition(true, sample.offset + sample.alreadyRead, false);
-	if (index > -1) {
-		buffer = this.stream.buffers[index];
-		var lengthAfterStart = buffer.byteLength - (sample.offset + sample.alreadyRead - buffer.fileStart);
-		if (sample.size - sample.alreadyRead <= lengthAfterStart) {
-			/* the (rest of the) sample is entirely contained in this buffer */
+	while(true) {
+		var index =	this.stream.findPosition(true, sample.offset + sample.alreadyRead, false);
+		if (index > -1) {
+			buffer = this.stream.buffers[index];
+			var lengthAfterStart = buffer.byteLength - (sample.offset + sample.alreadyRead - buffer.fileStart);
+			if (sample.size - sample.alreadyRead <= lengthAfterStart) {
+				/* the (rest of the) sample is entirely contained in this buffer */
 
-			Log.debug("ISOFile","Getting sample #"+sampleNum+" data (alreadyRead: "+sample.alreadyRead+" offset: "+
-				(sample.offset+sample.alreadyRead - buffer.fileStart)+" read size: "+(sample.size - sample.alreadyRead)+" full size: "+sample.size+")");
+				Log.debug("ISOFile","Getting sample #"+sampleNum+" data (alreadyRead: "+sample.alreadyRead+" offset: "+
+					(sample.offset+sample.alreadyRead - buffer.fileStart)+" read size: "+(sample.size - sample.alreadyRead)+" full size: "+sample.size+")");
 
-			DataStream.memcpy(sample.data.buffer, sample.alreadyRead, 
-			                  buffer, sample.offset+sample.alreadyRead - buffer.fileStart, sample.size - sample.alreadyRead);
+				DataStream.memcpy(sample.data.buffer, sample.alreadyRead,
+				                  buffer, sample.offset+sample.alreadyRead - buffer.fileStart, sample.size - sample.alreadyRead);
 
-			/* update the number of bytes used in this buffer and check if it needs to be removed */
-			buffer.usedBytes += sample.size - sample.alreadyRead;
-			this.stream.logBufferLevel();
+				/* update the number of bytes used in this buffer and check if it needs to be removed */
+				buffer.usedBytes += sample.size - sample.alreadyRead;
+				this.stream.logBufferLevel();
 
-			sample.alreadyRead = sample.size;
+				sample.alreadyRead = sample.size;
 
-			return sample;
+				return sample;
+			} else {
+				/* the sample does not end in this buffer */
+
+				if (lengthAfterStart === 0) return null;
+
+				Log.debug("ISOFile","Getting sample #"+sampleNum+" partial data (alreadyRead: "+sample.alreadyRead+" offset: "+
+					(sample.offset+sample.alreadyRead - buffer.fileStart)+" read size: "+lengthAfterStart+" full size: "+sample.size+")");
+
+				DataStream.memcpy(sample.data.buffer, sample.alreadyRead,
+				                  buffer, sample.offset+sample.alreadyRead - buffer.fileStart, lengthAfterStart);
+				sample.alreadyRead += lengthAfterStart;
+
+				/* update the number of bytes used in this buffer and check if it needs to be removed */
+				buffer.usedBytes += lengthAfterStart;
+				this.stream.logBufferLevel();
+
+				/* keep looking in the next buffer */
+			}
 		} else {
-			/* the sample does not end in this buffer */				
-			
-			Log.debug("ISOFile","Getting sample #"+sampleNum+" partial data (alreadyRead: "+sample.alreadyRead+" offset: "+
-				(sample.offset+sample.alreadyRead - buffer.fileStart)+" read size: "+lengthAfterStart+" full size: "+sample.size+")");
-			
-			DataStream.memcpy(sample.data.buffer, sample.alreadyRead, 
-			                  buffer, sample.offset+sample.alreadyRead - buffer.fileStart, lengthAfterStart);
-			sample.alreadyRead += lengthAfterStart;
-
-			/* update the number of bytes used in this buffer and check if it needs to be removed */
-			buffer.usedBytes += lengthAfterStart;
-			this.stream.logBufferLevel();
 			return null;
 		}
-	} else {
-		return null;
 	}
 }
 
@@ -7564,7 +7622,7 @@ ISOFile.prototype.flattenItemInfo = function() {
 				}
 				for (j = 0; j < association.props.length; j++) {
 					var propEntry = association.props[j];
-					if (propEntry.property_index > 0) {
+					if (propEntry.property_index > 0 && propEntry.property_index-1 < meta.iprp.ipco.boxes.length) {
 						var propbox = meta.iprp.ipco.boxes[propEntry.property_index-1];
 						item.properties[propbox.type] = propbox;
 						item.properties.boxes.push(propbox);
@@ -7759,7 +7817,7 @@ ISOFile.prototype.createFragment = function(track_id, sampleNumber, stream_) {
 	var stream = stream_ || new DataStream();
 	stream.endianness = DataStream.BIG_ENDIAN;
 
-	var moof = ISOFile.createSingleSampleMoof(sample);
+	var moof = this.createSingleSampleMoof(sample);
 	moof.write(stream);
 
 	/* adjusting the data_offset now that the moof size is known*/

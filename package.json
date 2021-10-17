@@ -1,6 +1,6 @@
 {
   "name": "mp4box",
-  "version": "0.3.20",
+  "version": "0.4.9",
   "description": "JavaScript version of GPAC's MP4Box tool",
   "keywords": [
     "mp4",
@@ -45,8 +45,5 @@
   },
   "scripts": {
     "test": "grunt test --verbose"
-  },
-  "dependencies": {
-    "npm": "^6.9.0"
   }
 }
